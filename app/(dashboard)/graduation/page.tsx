@@ -4,37 +4,41 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/utils/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  GraduationCap,
+  BookOpen,
   Search,
   Plus,
   Pencil,
   Trash2,
   X,
-  Award,
+  GraduationCap,
   CalendarDays,
-  BookOpen,
+  Award,
   CheckCircle2,
 } from "lucide-react";
 
-type GraduationRecord = {
+type Student = {
+  id: string;
+  full_name: string;
+};
+
+type EducationRecord = {
   id: string;
   student_id: string;
   institution: string;
   program: string | null;
   level: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  status: string | null;
+
   graduation_date: string | null;
   certificate_name: string | null;
   certificate_number: string | null;
   graduation_notes: string | null;
-  status: string | null;
+
   student?: {
     full_name: string;
   };
-};
-
-type Student = {
-  id: string;
-  full_name: string;
 };
 
 const emptyForm = {
@@ -42,20 +46,26 @@ const emptyForm = {
   institution: "",
   program: "",
   level: "Bachelor",
+  start_date: "",
+  end_date: "",
+  status: "Studying",
+
   graduation_date: "",
   certificate_name: "",
   certificate_number: "",
   graduation_notes: "",
 };
 
-export default function GraduationPage() {
+export default function EducationPage() {
   const supabase = createClient();
 
-  const [records, setRecords] = useState<GraduationRecord[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
+  const [records, setRecords] = useState<EducationRecord[]>([]);
   const [search, setSearch] = useState("");
+
   const [showModal, setShowModal] = useState(false);
-  const [editing, setEditing] = useState<GraduationRecord | null>(null);
+  const [editing, setEditing] = useState<EducationRecord | null>(null);
+
   const [form, setForm] = useState(emptyForm);
   const [loading, setLoading] = useState(true);
 
@@ -67,7 +77,7 @@ export default function GraduationPage() {
       .select("id, full_name")
       .order("full_name");
 
-    const { data: graduationData } = await supabase
+    const { data: educationData, error } = await supabase
       .from("education_records")
       .select(`
         *,
@@ -75,11 +85,14 @@ export default function GraduationPage() {
           full_name
         )
       `)
-      .eq("status", "Graduated")
-      .order("graduation_date", { ascending: false });
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      alert(error.message);
+    }
 
     setStudents(studentData ?? []);
-    setRecords(graduationData ?? []);
+    setRecords(educationData ?? []);
     setLoading(false);
   }
 
@@ -95,19 +108,26 @@ export default function GraduationPage() {
         record.student?.full_name?.toLowerCase().includes(value) ||
         record.institution?.toLowerCase().includes(value) ||
         record.program?.toLowerCase().includes(value) ||
-        record.certificate_name?.toLowerCase().includes(value)
+        record.level?.toLowerCase().includes(value) ||
+        record.status?.toLowerCase().includes(value)
       );
     });
   }, [records, search]);
 
   const stats = {
     total: records.length,
-    thisYear: records.filter(
-      (r) =>
-        r.graduation_date &&
-        new Date(r.graduation_date).getFullYear() === new Date().getFullYear()
+
+    studying: records.filter(
+      (r) => r.status === "Studying"
     ).length,
-    certificates: records.filter((r) => r.certificate_name).length,
+
+    graduated: records.filter(
+      (r) => r.status === "Graduated"
+    ).length,
+
+    paused: records.filter(
+      (r) => r.status === "Paused"
+    ).length,
   };
 
   function openAdd() {
@@ -116,7 +136,7 @@ export default function GraduationPage() {
     setShowModal(true);
   }
 
-  function openEdit(record: GraduationRecord) {
+  function openEdit(record: EducationRecord) {
     setEditing(record);
 
     setForm({
@@ -124,6 +144,10 @@ export default function GraduationPage() {
       institution: record.institution ?? "",
       program: record.program ?? "",
       level: record.level ?? "Bachelor",
+      start_date: record.start_date ?? "",
+      end_date: record.end_date ?? "",
+      status: record.status ?? "Studying",
+
       graduation_date: record.graduation_date ?? "",
       certificate_name: record.certificate_name ?? "",
       certificate_number: record.certificate_number ?? "",
@@ -133,9 +157,38 @@ export default function GraduationPage() {
     setShowModal(true);
   }
 
-  async function saveGraduation() {
-    if (!form.student_id || !form.institution || !form.graduation_date) {
-      alert("Please fill Student, Institution and Graduation Date.");
+  function updateStatus(status: string) {
+    setForm((current) => ({
+      ...current,
+      status,
+
+      // Clear graduation information when no longer graduated
+      ...(status !== "Graduated"
+        ? {
+            graduation_date: "",
+            certificate_name: "",
+            certificate_number: "",
+            graduation_notes: "",
+          }
+        : {}),
+    }));
+  }
+
+  async function saveEducation() {
+    if (
+      !form.student_id ||
+      !form.institution ||
+      !form.status
+    ) {
+      alert("Please fill Student, Institution and Status.");
+      return;
+    }
+
+    if (
+      form.status === "Graduated" &&
+      !form.graduation_date
+    ) {
+      alert("Please enter the graduation date.");
       return;
     }
 
@@ -144,11 +197,29 @@ export default function GraduationPage() {
       institution: form.institution,
       program: form.program || null,
       level: form.level || null,
-      graduation_date: form.graduation_date,
-      certificate_name: form.certificate_name || null,
-      certificate_number: form.certificate_number || null,
-      graduation_notes: form.graduation_notes || null,
-      status: "Graduated",
+      start_date: form.start_date || null,
+      end_date: form.end_date || null,
+      status: form.status,
+
+      graduation_date:
+        form.status === "Graduated"
+          ? form.graduation_date || null
+          : null,
+
+      certificate_name:
+        form.status === "Graduated"
+          ? form.certificate_name || null
+          : null,
+
+      certificate_number:
+        form.status === "Graduated"
+          ? form.certificate_number || null
+          : null,
+
+      graduation_notes:
+        form.status === "Graduated"
+          ? form.graduation_notes || null
+          : null,
     };
 
     if (editing) {
@@ -173,14 +244,15 @@ export default function GraduationPage() {
     }
 
     setShowModal(false);
-    setForm(emptyForm);
     setEditing(null);
+    setForm(emptyForm);
+
     loadData();
   }
 
-  async function deleteGraduation(id: string) {
+  async function deleteEducation(id: string) {
     const confirmed = confirm(
-      "Are you sure you want to delete this graduation record?"
+      "Are you sure you want to delete this education record?"
     );
 
     if (!confirmed) return;
@@ -200,7 +272,8 @@ export default function GraduationPage() {
 
   return (
     <div className="min-h-screen p-6 lg:p-10">
-      {/* Header */}
+
+      {/* HEADER */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -208,15 +281,15 @@ export default function GraduationPage() {
       >
         <div>
           <p className="mb-2 text-sm font-medium text-gray-500">
-            Education Management
+            Student Management
           </p>
 
           <h1 className="text-4xl font-bold tracking-tight">
-            Graduation
+            Education
           </h1>
 
           <p className="mt-2 text-gray-500">
-            Track students who have successfully completed their education.
+            Track education progress from enrollment to graduation.
           </p>
         </div>
 
@@ -225,27 +298,32 @@ export default function GraduationPage() {
           className="flex items-center justify-center gap-2 rounded-xl bg-black px-5 py-3 font-medium text-white shadow-lg transition hover:-translate-y-1 hover:shadow-xl"
         >
           <Plus size={19} />
-          Add Graduation
+          Add Education
         </button>
       </motion.div>
 
-      {/* Stats */}
-      <div className="mb-8 grid gap-5 md:grid-cols-3">
+      {/* STATS */}
+      <div className="mb-8 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
         {[
           {
-            title: "Total Graduates",
+            title: "Total Records",
             value: stats.total,
+            icon: BookOpen,
+          },
+          {
+            title: "Studying",
+            value: stats.studying,
+            icon: BookOpen,
+          },
+          {
+            title: "Graduated",
+            value: stats.graduated,
             icon: GraduationCap,
           },
           {
-            title: "Graduated This Year",
-            value: stats.thisYear,
+            title: "Paused",
+            value: stats.paused,
             icon: CalendarDays,
-          },
-          {
-            title: "Certificates",
-            value: stats.certificates,
-            icon: Award,
           },
         ].map((item, index) => {
           const Icon = item.icon;
@@ -263,18 +341,27 @@ export default function GraduationPage() {
                   <Icon size={22} />
                 </div>
 
-                <CheckCircle2 className="text-green-500" size={20} />
+                {item.title === "Graduated" && (
+                  <CheckCircle2
+                    size={20}
+                    className="text-green-500"
+                  />
+                )}
               </div>
 
-              <p className="text-sm text-gray-500">{item.title}</p>
+              <p className="text-sm text-gray-500">
+                {item.title}
+              </p>
 
-              <p className="mt-1 text-3xl font-bold">{item.value}</p>
+              <p className="mt-1 text-3xl font-bold">
+                {item.value}
+              </p>
             </motion.div>
           );
         })}
       </div>
 
-      {/* Search */}
+      {/* SEARCH */}
       <div className="mb-6 rounded-2xl border bg-white p-4 shadow-sm">
         <div className="relative">
           <Search
@@ -285,24 +372,24 @@ export default function GraduationPage() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search graduate, institution, program or certificate..."
+            placeholder="Search student, institution, program or status..."
             className="w-full rounded-xl border bg-gray-50 py-3 pl-11 pr-4 outline-none transition focus:border-black focus:bg-white"
           />
         </div>
       </div>
 
-      {/* Table */}
+      {/* TABLE */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         className="overflow-hidden rounded-2xl border bg-white shadow-sm"
       >
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px]">
+          <table className="w-full min-w-[950px]">
             <thead className="border-b bg-gray-50">
               <tr>
                 <th className="px-6 py-4 text-left text-xs font-semibold uppercase text-gray-500">
-                  Graduate
+                  Student
                 </th>
 
                 <th className="px-6 py-4 text-left text-xs font-semibold uppercase text-gray-500">
@@ -318,11 +405,11 @@ export default function GraduationPage() {
                 </th>
 
                 <th className="px-6 py-4 text-left text-xs font-semibold uppercase text-gray-500">
-                  Graduation Date
+                  Status
                 </th>
 
                 <th className="px-6 py-4 text-left text-xs font-semibold uppercase text-gray-500">
-                  Certificate
+                  Graduation
                 </th>
 
                 <th className="px-6 py-4 text-right text-xs font-semibold uppercase text-gray-500">
@@ -344,7 +431,7 @@ export default function GraduationPage() {
                     <td className="px-6 py-5">
                       <div className="flex items-center gap-3">
                         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-black text-white">
-                          <GraduationCap size={18} />
+                          <BookOpen size={18} />
                         </div>
 
                         <div>
@@ -353,7 +440,7 @@ export default function GraduationPage() {
                           </p>
 
                           <p className="text-xs text-gray-400">
-                            Graduate
+                            Student
                           </p>
                         </div>
                       </div>
@@ -373,16 +460,29 @@ export default function GraduationPage() {
                       </span>
                     </td>
 
+                    <td className="px-6 py-5">
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                          record.status === "Graduated"
+                            ? "bg-green-100 text-green-700"
+                            : record.status === "Studying"
+                            ? "bg-blue-100 text-blue-700"
+                            : record.status === "Paused"
+                            ? "bg-yellow-100 text-yellow-700"
+                            : "bg-red-100 text-red-700"
+                        }`}
+                      >
+                        {record.status}
+                      </span>
+                    </td>
+
                     <td className="px-6 py-5 text-sm">
-                      {record.graduation_date
+                      {record.status === "Graduated" &&
+                      record.graduation_date
                         ? new Date(
                             record.graduation_date
                           ).toLocaleDateString()
                         : "—"}
-                    </td>
-
-                    <td className="px-6 py-5 text-sm">
-                      {record.certificate_name || "—"}
                     </td>
 
                     <td className="px-6 py-5">
@@ -395,7 +495,9 @@ export default function GraduationPage() {
                         </button>
 
                         <button
-                          onClick={() => deleteGraduation(record.id)}
+                          onClick={() =>
+                            deleteEducation(record.id)
+                          }
                           className="rounded-lg p-2 text-red-500 transition hover:bg-red-50"
                         >
                           <Trash2 size={17} />
@@ -412,21 +514,21 @@ export default function GraduationPage() {
         {!loading && filteredRecords.length === 0 && (
           <div className="flex flex-col items-center justify-center px-6 py-20 text-center">
             <div className="mb-4 rounded-2xl bg-gray-100 p-5">
-              <GraduationCap size={35} />
+              <BookOpen size={35} />
             </div>
 
             <h3 className="text-lg font-bold">
-              No graduation records
+              No education records
             </h3>
 
             <p className="mt-2 text-sm text-gray-500">
-              Add your first graduate to start tracking graduation.
+              Add an education record to start tracking students.
             </p>
           </div>
         )}
       </motion.div>
 
-      {/* Modal */}
+      {/* MODAL */}
       <AnimatePresence>
         {showModal && (
           <motion.div
@@ -441,14 +543,18 @@ export default function GraduationPage() {
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
               className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl md:p-8"
             >
+
+              {/* MODAL HEADER */}
               <div className="mb-8 flex items-center justify-between">
                 <div>
                   <h2 className="text-2xl font-bold">
-                    {editing ? "Edit Graduation" : "Add Graduation"}
+                    {editing
+                      ? "Edit Education"
+                      : "Add Education"}
                   </h2>
 
                   <p className="mt-1 text-sm text-gray-500">
-                    Record the student's graduation information.
+                    Manage the student's education journey.
                   </p>
                 </div>
 
@@ -461,7 +567,8 @@ export default function GraduationPage() {
               </div>
 
               <div className="grid gap-5 md:grid-cols-2">
-                {/* Student */}
+
+                {/* STUDENT */}
                 <div className="md:col-span-2">
                   <label className="mb-2 block text-sm font-medium">
                     Student *
@@ -477,17 +584,22 @@ export default function GraduationPage() {
                     }
                     className="w-full rounded-xl border p-3 outline-none focus:border-black"
                   >
-                    <option value="">Select student</option>
+                    <option value="">
+                      Select student
+                    </option>
 
                     {students.map((student) => (
-                      <option key={student.id} value={student.id}>
+                      <option
+                        key={student.id}
+                        value={student.id}
+                      >
                         {student.full_name}
                       </option>
                     ))}
                   </select>
                 </div>
 
-                {/* Institution */}
+                {/* INSTITUTION */}
                 <div>
                   <label className="mb-2 block text-sm font-medium">
                     Institution *
@@ -506,7 +618,7 @@ export default function GraduationPage() {
                   />
                 </div>
 
-                {/* Program */}
+                {/* PROGRAM */}
                 <div>
                   <label className="mb-2 block text-sm font-medium">
                     Program / Course
@@ -525,7 +637,7 @@ export default function GraduationPage() {
                   />
                 </div>
 
-                {/* Level */}
+                {/* LEVEL */}
                 <div>
                   <label className="mb-2 block text-sm font-medium">
                     Education Level
@@ -541,92 +653,203 @@ export default function GraduationPage() {
                     }
                     className="w-full rounded-xl border p-3 outline-none focus:border-black"
                   >
+                    <option>Primary</option>
+                    <option>Secondary</option>
+                    <option>Diploma</option>
                     <option>Bachelor</option>
                     <option>Master</option>
                     <option>PhD</option>
-                    <option>Diploma</option>
                     <option>Other</option>
                   </select>
                 </div>
 
-                {/* Graduation Date */}
+                {/* STATUS */}
                 <div>
                   <label className="mb-2 block text-sm font-medium">
-                    Graduation Date *
+                    Status *
+                  </label>
+
+                  <select
+                    value={form.status}
+                    onChange={(e) =>
+                      updateStatus(e.target.value)
+                    }
+                    className="w-full rounded-xl border p-3 outline-none focus:border-black"
+                  >
+                    <option>Studying</option>
+                    <option>Graduated</option>
+                    <option>Paused</option>
+                    <option>Dropped</option>
+                  </select>
+                </div>
+
+                {/* START DATE */}
+                <div>
+                  <label className="mb-2 block text-sm font-medium">
+                    Start Date
                   </label>
 
                   <input
                     type="date"
-                    value={form.graduation_date}
+                    value={form.start_date}
                     onChange={(e) =>
                       setForm({
                         ...form,
-                        graduation_date: e.target.value,
+                        start_date: e.target.value,
                       })
                     }
                     className="w-full rounded-xl border p-3 outline-none focus:border-black"
                   />
                 </div>
 
-                {/* Certificate */}
+                {/* END DATE */}
                 <div>
                   <label className="mb-2 block text-sm font-medium">
-                    Certificate Name
+                    Expected / End Date
                   </label>
 
                   <input
-                    value={form.certificate_name}
+                    type="date"
+                    value={form.end_date}
                     onChange={(e) =>
                       setForm({
                         ...form,
-                        certificate_name: e.target.value,
+                        end_date: e.target.value,
                       })
                     }
-                    placeholder="Bachelor Degree Certificate"
                     className="w-full rounded-xl border p-3 outline-none focus:border-black"
-                  />
-                </div>
-
-                {/* Certificate Number */}
-                <div>
-                  <label className="mb-2 block text-sm font-medium">
-                    Certificate Number
-                  </label>
-
-                  <input
-                    value={form.certificate_number}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        certificate_number: e.target.value,
-                      })
-                    }
-                    placeholder="CERT-2026-001"
-                    className="w-full rounded-xl border p-3 outline-none focus:border-black"
-                  />
-                </div>
-
-                {/* Notes */}
-                <div className="md:col-span-2">
-                  <label className="mb-2 block text-sm font-medium">
-                    Graduation Notes
-                  </label>
-
-                  <textarea
-                    value={form.graduation_notes}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        graduation_notes: e.target.value,
-                      })
-                    }
-                    rows={4}
-                    placeholder="Additional graduation information..."
-                    className="w-full resize-none rounded-xl border p-3 outline-none focus:border-black"
                   />
                 </div>
               </div>
 
+              {/* GRADUATION SECTION */}
+              <AnimatePresence>
+                {form.status === "Graduated" && (
+                  <motion.div
+                    initial={{
+                      opacity: 0,
+                      height: 0,
+                      y: -10,
+                    }}
+                    animate={{
+                      opacity: 1,
+                      height: "auto",
+                      y: 0,
+                    }}
+                    exit={{
+                      opacity: 0,
+                      height: 0,
+                      y: -10,
+                    }}
+                    className="mt-8 overflow-hidden"
+                  >
+                    <div className="rounded-2xl border border-green-200 bg-green-50 p-6">
+
+                      <div className="mb-6 flex items-center gap-3">
+                        <div className="rounded-xl bg-green-100 p-3 text-green-700">
+                          <GraduationCap size={22} />
+                        </div>
+
+                        <div>
+                          <h3 className="font-bold text-green-900">
+                            Graduation Information
+                          </h3>
+
+                          <p className="text-sm text-green-700">
+                            Complete the information about the student's graduation.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-5 md:grid-cols-2">
+
+                        {/* GRADUATION DATE */}
+                        <div>
+                          <label className="mb-2 block text-sm font-medium">
+                            Graduation Date *
+                          </label>
+
+                          <input
+                            type="date"
+                            value={form.graduation_date}
+                            onChange={(e) =>
+                              setForm({
+                                ...form,
+                                graduation_date:
+                                  e.target.value,
+                              })
+                            }
+                            className="w-full rounded-xl border bg-white p-3 outline-none focus:border-green-600"
+                          />
+                        </div>
+
+                        {/* CERTIFICATE */}
+                        <div>
+                          <label className="mb-2 block text-sm font-medium">
+                            Certificate Name
+                          </label>
+
+                          <input
+                            value={form.certificate_name}
+                            onChange={(e) =>
+                              setForm({
+                                ...form,
+                                certificate_name:
+                                  e.target.value,
+                              })
+                            }
+                            placeholder="Bachelor Degree Certificate"
+                            className="w-full rounded-xl border bg-white p-3 outline-none focus:border-green-600"
+                          />
+                        </div>
+
+                        {/* CERTIFICATE NUMBER */}
+                        <div>
+                          <label className="mb-2 block text-sm font-medium">
+                            Certificate Number
+                          </label>
+
+                          <input
+                            value={form.certificate_number}
+                            onChange={(e) =>
+                              setForm({
+                                ...form,
+                                certificate_number:
+                                  e.target.value,
+                              })
+                            }
+                            placeholder="CERT-2026-001"
+                            className="w-full rounded-xl border bg-white p-3 outline-none focus:border-green-600"
+                          />
+                        </div>
+
+                        {/* NOTES */}
+                        <div>
+                          <label className="mb-2 block text-sm font-medium">
+                            Graduation Notes
+                          </label>
+
+                          <textarea
+                            value={form.graduation_notes}
+                            onChange={(e) =>
+                              setForm({
+                                ...form,
+                                graduation_notes:
+                                  e.target.value,
+                              })
+                            }
+                            rows={3}
+                            placeholder="Additional graduation information..."
+                            className="w-full resize-none rounded-xl border bg-white p-3 outline-none focus:border-green-600"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* BUTTONS */}
               <div className="mt-8 flex justify-end gap-3">
                 <button
                   onClick={() => setShowModal(false)}
@@ -636,10 +859,12 @@ export default function GraduationPage() {
                 </button>
 
                 <button
-                  onClick={saveGraduation}
+                  onClick={saveEducation}
                   className="rounded-xl bg-black px-6 py-3 font-medium text-white shadow-lg transition hover:-translate-y-0.5 hover:shadow-xl"
                 >
-                  {editing ? "Save Changes" : "Add Graduation"}
+                  {editing
+                    ? "Save Changes"
+                    : "Add Education"}
                 </button>
               </div>
             </motion.div>
